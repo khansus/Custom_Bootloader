@@ -24,6 +24,8 @@
 /* USER CODE BEGIN Includes */
 #include<stdio.h>
 #include<string.h>
+#include<stdbool.h>
+#include "lwip/apps/httpd.h"
 
 /* USER CODE END Includes */
 
@@ -34,11 +36,15 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+static void goto_application( void );
+void uart_print(const char *str);
+void http_application(void);
 
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
+#define BOOT_CHECK_DURATION 3000
 
 /* USER CODE END PM */
 
@@ -60,10 +66,7 @@ static void MX_USART3_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void uart_print(const char *str)
-{
-    HAL_UART_Transmit(&huart3, (uint8_t *)str, strlen(str), HAL_MAX_DELAY);
-}
+
 
 /* USER CODE END 0 */
 
@@ -99,8 +102,31 @@ int main(void)
   MX_USART3_UART_Init();
   MX_LWIP_Init();
   /* USER CODE BEGIN 2 */
-  httpd_init();
-   uint32_t count = 0;
+
+   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_SET);
+
+   printf("BOOTLOADER STARTED\r\n");
+   HAL_Delay(3000);
+   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_RESET);
+   uint32_t last_tick = HAL_GetTick();
+   bool BOOT_FLAG = 0;
+   printf("Waiting for BOOT...\r\n");
+   while(1){
+
+	   if((HAL_GetTick() - last_tick) > BOOT_CHECK_DURATION)
+		   break;
+	   if(!BOOT_FLAG)
+		   BOOT_FLAG = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_3);
+   }
+   if(BOOT_FLAG){
+	   printf("BOOT FLAG SET\r\n");
+	   http_application();
+   }
+   else{
+	   printf("BOOT FLAG NOT SET\r\n");
+	   goto_application();
+   }
+
 
   /* USER CODE END 2 */
 
@@ -109,15 +135,6 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-	  MX_LWIP_Process();
-	 	      count++;
-	 	      if( count >= 10000)
-	 	      {
-	 	        HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_7 );    //Green LED Toggle
-	 	        count = 0;
-	 	        uart_print("hell fucks\r\n");
-	 	        printf("skdjfhdsk\r\n");
-	 	      }
 
     /* USER CODE BEGIN 3 */
   }
@@ -245,6 +262,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(USER_Btn_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : PA3 */
+  GPIO_InitStruct.Pin = GPIO_PIN_3;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
   /*Configure GPIO pins : LD3_Pin LD2_Pin */
   GPIO_InitStruct.Pin = LD3_Pin|LD2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -297,6 +320,47 @@ int fputc(int ch, FILE *f)
   /* e.g. write a character to the UART3 and Loop until the end of transmission */
   HAL_UART_Transmit(&huart3, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
   return ch;
+}
+
+void uart_print(const char *str)
+{
+    HAL_UART_Transmit(&huart3, (uint8_t *)str, strlen(str), HAL_MAX_DELAY);
+}
+
+static void goto_application(void)
+{
+  //printf("Gonna Jump to Application\r\n");
+
+  void (*app_reset_handler)(void) = (void*)(*((volatile uint32_t*) (0x08040000 + 4U)));
+
+  HAL_RCC_DeInit();
+  HAL_DeInit();
+  __set_MSP(*(volatile uint32_t*) 0x08040000);
+  SysTick->CTRL = 0;
+  SysTick->LOAD = 0;
+  SysTick->VAL = 0;
+
+  // Turn OFF the Green Led to tell the user that Bootloader is not running
+ // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET );    //Green LED OFF
+  app_reset_handler();    //call the app reset handler
+}
+
+void http_application(void){
+	 httpd_init();
+	 uint32_t count = 0;
+	 printf("Starting HTTP application\r\n");
+
+	 while(1){
+		 MX_LWIP_Process();
+		 count++;
+		 if( count >= 100000){
+		 	 	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);    //Green LED Toggle
+		 	 	count = 0;
+		 	 	printf("HTTP running\r\n");
+		 }
+	 }
+
+
 }
 
 /* USER CODE END 4 */
