@@ -26,6 +26,8 @@
 #include<string.h>
 #include<stdbool.h>
 #include "lwip/apps/httpd.h"
+#include <string.h>
+#include "lwip/pbuf.h"
 
 /* USER CODE END Includes */
 
@@ -36,15 +38,16 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-static void goto_application( void );
-void uart_print(const char *str);
-void http_application(void);
+
 
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
 #define BOOT_CHECK_DURATION 3000
+#define MAX_UPLOAD_SIZE 512
+#define BLUE_LED GPIO_PIN_7
+#define RED_LED GPIO_PIN_14
 
 /* USER CODE END PM */
 
@@ -53,6 +56,8 @@ void http_application(void);
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
+uint8_t upload_buffer[MAX_UPLOAD_SIZE];
+uint32_t current_pos = 0;
 
 /* USER CODE END PV */
 
@@ -60,7 +65,11 @@ UART_HandleTypeDef huart3;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART3_UART_Init(void);
+
 /* USER CODE BEGIN PFP */
+static void goto_application( void );
+void uart_print(const char *str);
+void http_application(void);
 
 /* USER CODE END PFP */
 
@@ -354,13 +363,88 @@ void http_application(void){
 		 MX_LWIP_Process();
 		 count++;
 		 if( count >= 100000){
-		 	 	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);    //Green LED Toggle
+		 	 	HAL_GPIO_TogglePin(GPIOB, RED_LED);    //Green LED Toggle
 		 	 	count = 0;
 		 	 	printf("HTTP running\r\n");
 		 }
 	 }
 
 
+}
+
+// FOR HTTP POST CALLBACKS
+
+err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
+                       u16_t http_request_len, int content_len, char *response_uri,
+                       u16_t response_uri_len, u8_t *post_auto_wnd) {
+
+    // Check if we are at the correct upload endpoint
+    if (strcmp(uri, "/upload.bin") == 0) {
+        current_pos = 0; // Reset buffer pointer for new upload
+        printf("\rPOST received, preparing to buffer %d bytes\r\n", content_len);
+        return ERR_OK;
+    }
+
+    return ERR_VAL; // Reject if URI is wrong
+}
+
+static uint8_t header_found = 0;
+static uint8_t footer_detected = 0;
+
+err_t httpd_post_receive_data(void *connection, struct pbuf *p) {
+    struct pbuf *q = p;
+    while (q != NULL) {
+        uint8_t *ptr = (uint8_t *)q->payload;
+
+        if (!header_found) {
+            // 1. Search for the HTTP header/data separator \r\n\r\n
+            for (int i = 0; i < (int)q->len - 3; i++) {
+                if (ptr[i] == 0x0D && ptr[i+1] == 0x0A && ptr[i+2] == 0x0D && ptr[i+3] == 0x0A) {
+                    header_found = 1;
+                    // Start copying data from the byte after \r\n\r\n
+                    int data_len = q->len - (i + 4);
+                    if (data_len > 0) {
+                        memcpy(&upload_buffer[current_pos], &ptr[i + 4], data_len);
+                        current_pos += data_len;
+                    }
+                    break;
+                }
+            }
+        } else {
+            // 2. We are in the "File Data" zone.
+            // Copy everything, but check for the boundary footer at the end.
+            // (Simple approach: copy all, then truncate in post_finished)
+            memcpy(&upload_buffer[current_pos], q->payload, q->len);
+            current_pos += q->len;
+        }
+        q = q->next;
+    }
+    pbuf_free(p);
+    return ERR_OK;
+}
+
+void httpd_post_finished(void *connection, char *response_uri, u16_t response_uri_len) {
+    // 3. Trim the footer (boundary string)
+    const char *footer = "--WebKit";
+    for (int i = current_pos - 10; i >= 0; i--) {
+        if (memcmp(&upload_buffer[i], footer, 8) == 0) {
+            current_pos = i - 2; // Subtract \r\n
+            break;
+        }
+    }
+
+    printf("\r\n--- Upload Successful ---\r\n");
+    printf("Clean File Size: %lu bytes\r\n", current_pos);
+
+    printf("Content: ");
+    for (uint32_t i = 0; i < current_pos; i++) {
+        printf("%c", upload_buffer[i]);
+    }
+    printf("\r\n-------------------------\r\n");
+
+    header_found = 0;
+    current_pos = 0;
+    strncpy(response_uri, "/", response_uri_len);
 }
 
 /* USER CODE END 4 */
