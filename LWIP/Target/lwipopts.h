@@ -101,6 +101,8 @@
 #define CHECKSUM_CHECK_ICMP6 0
 /*-----------------------------------------------------------------------------*/
 /* USER CODE BEGIN 1 */
+#define LWIP_HTTPD_POST_MAX_URI_LEN       64
+#define LWIP_HTTPD_POST_MAX_RESPONSE_URI_LEN  64
 
 /* USER CODE END 1 */
 

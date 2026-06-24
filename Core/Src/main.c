@@ -27,7 +27,8 @@
 #include<stdbool.h>
 #include "lwip/apps/httpd.h"
 #include <string.h>
-#include "lwip/pbuf.h"
+#include "http.h"
+#include "ota.h"
 
 /* USER CODE END Includes */
 
@@ -45,7 +46,6 @@
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
 #define BOOT_CHECK_DURATION 3000
-#define MAX_UPLOAD_SIZE 512
 #define BLUE_LED GPIO_PIN_7
 #define RED_LED GPIO_PIN_14
 
@@ -53,11 +53,11 @@
 
 /* Private variables ---------------------------------------------------------*/
 
+CRC_HandleTypeDef hcrc;
+
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
-uint8_t upload_buffer[MAX_UPLOAD_SIZE];
-uint32_t current_pos = 0;
 
 /* USER CODE END PV */
 
@@ -65,11 +65,13 @@ uint32_t current_pos = 0;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART3_UART_Init(void);
-
+static void MX_CRC_Init(void);
 /* USER CODE BEGIN PFP */
 static void goto_application( void );
 void uart_print(const char *str);
-void http_application(void);
+
+extern void http_application(void);
+
 
 /* USER CODE END PFP */
 
@@ -110,6 +112,7 @@ int main(void)
   MX_GPIO_Init();
   MX_USART3_UART_Init();
   MX_LWIP_Init();
+  MX_CRC_Init();
   /* USER CODE BEGIN 2 */
 
    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_SET);
@@ -131,9 +134,10 @@ int main(void)
 	   printf("BOOT FLAG SET\r\n");
 	   http_application();
    }
-   else{
-	   printf("BOOT FLAG NOT SET\r\n");
-	   goto_application();
+   else {
+       printf("BOOT FLAG NOT SET\r\n");
+       load_new_app();       // copies staged slot → 0x08040000 if pending
+       goto_application();   // jumps to 0x08040000
    }
 
 
@@ -202,6 +206,37 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief CRC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_CRC_Init(void)
+{
+
+  /* USER CODE BEGIN CRC_Init 0 */
+
+  /* USER CODE END CRC_Init 0 */
+
+  /* USER CODE BEGIN CRC_Init 1 */
+
+  /* USER CODE END CRC_Init 1 */
+  hcrc.Instance = CRC;
+  hcrc.Init.DefaultPolynomialUse = DEFAULT_POLYNOMIAL_ENABLE;
+  hcrc.Init.DefaultInitValueUse = DEFAULT_INIT_VALUE_ENABLE;
+  hcrc.Init.InputDataInversionMode = CRC_INPUTDATA_INVERSION_NONE;
+  hcrc.Init.OutputDataInversionMode = CRC_OUTPUTDATA_INVERSION_DISABLE;
+  hcrc.InputDataFormat = CRC_INPUTDATA_FORMAT_BYTES;
+  if (HAL_CRC_Init(&hcrc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN CRC_Init 2 */
+
+  /* USER CODE END CRC_Init 2 */
+
 }
 
 /**
@@ -336,15 +371,18 @@ void uart_print(const char *str)
     HAL_UART_Transmit(&huart3, (uint8_t *)str, strlen(str), HAL_MAX_DELAY);
 }
 
+
+/******************************************************************************************************************/
+
 static void goto_application(void)
 {
   //printf("Gonna Jump to Application\r\n");
 
-  void (*app_reset_handler)(void) = (void*)(*((volatile uint32_t*) (0x08040000 + 4U)));
+  void (*app_reset_handler)(void) = (void*)(*((volatile uint32_t*) (ETX_APP_FLASH_ADDR + 4U)));
 
   HAL_RCC_DeInit();
   HAL_DeInit();
-  __set_MSP(*(volatile uint32_t*) 0x08040000);
+  __set_MSP(*(volatile uint32_t*) ETX_APP_FLASH_ADDR);
   SysTick->CTRL = 0;
   SysTick->LOAD = 0;
   SysTick->VAL = 0;
@@ -354,98 +392,7 @@ static void goto_application(void)
   app_reset_handler();    //call the app reset handler
 }
 
-void http_application(void){
-	 httpd_init();
-	 uint32_t count = 0;
-	 printf("Starting HTTP application\r\n");
 
-	 while(1){
-		 MX_LWIP_Process();
-		 count++;
-		 if( count >= 100000){
-		 	 	HAL_GPIO_TogglePin(GPIOB, RED_LED);    //Green LED Toggle
-		 	 	count = 0;
-		 	 	printf("HTTP running\r\n");
-		 }
-	 }
-
-
-}
-
-// FOR HTTP POST CALLBACKS
-
-err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
-                       u16_t http_request_len, int content_len, char *response_uri,
-                       u16_t response_uri_len, u8_t *post_auto_wnd) {
-
-    // Check if we are at the correct upload endpoint
-    if (strcmp(uri, "/upload.bin") == 0) {
-        current_pos = 0; // Reset buffer pointer for new upload
-        printf("\rPOST received, preparing to buffer %d bytes\r\n", content_len);
-        return ERR_OK;
-    }
-
-    return ERR_VAL; // Reject if URI is wrong
-}
-
-static uint8_t header_found = 0;
-static uint8_t footer_detected = 0;
-
-err_t httpd_post_receive_data(void *connection, struct pbuf *p) {
-    struct pbuf *q = p;
-    while (q != NULL) {
-        uint8_t *ptr = (uint8_t *)q->payload;
-
-        if (!header_found) {
-            // 1. Search for the HTTP header/data separator \r\n\r\n
-            for (int i = 0; i < (int)q->len - 3; i++) {
-                if (ptr[i] == 0x0D && ptr[i+1] == 0x0A && ptr[i+2] == 0x0D && ptr[i+3] == 0x0A) {
-                    header_found = 1;
-                    // Start copying data from the byte after \r\n\r\n
-                    int data_len = q->len - (i + 4);
-                    if (data_len > 0) {
-                        memcpy(&upload_buffer[current_pos], &ptr[i + 4], data_len);
-                        current_pos += data_len;
-                    }
-                    break;
-                }
-            }
-        } else {
-            // 2. We are in the "File Data" zone.
-            // Copy everything, but check for the boundary footer at the end.
-            // (Simple approach: copy all, then truncate in post_finished)
-            memcpy(&upload_buffer[current_pos], q->payload, q->len);
-            current_pos += q->len;
-        }
-        q = q->next;
-    }
-    pbuf_free(p);
-    return ERR_OK;
-}
-
-void httpd_post_finished(void *connection, char *response_uri, u16_t response_uri_len) {
-    // 3. Trim the footer (boundary string)
-    const char *footer = "--WebKit";
-    for (int i = current_pos - 10; i >= 0; i--) {
-        if (memcmp(&upload_buffer[i], footer, 8) == 0) {
-            current_pos = i - 2; // Subtract \r\n
-            break;
-        }
-    }
-
-    printf("\r\n--- Upload Successful ---\r\n");
-    printf("Clean File Size: %lu bytes\r\n", current_pos);
-
-    printf("Content: ");
-    for (uint32_t i = 0; i < current_pos; i++) {
-        printf("%c", upload_buffer[i]);
-    }
-    printf("\r\n-------------------------\r\n");
-
-    header_found = 0;
-    current_pos = 0;
-    strncpy(response_uri, "/", response_uri_len);
-}
 
 /* USER CODE END 4 */
 

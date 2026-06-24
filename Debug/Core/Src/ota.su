@@ -1,0 +1,6 @@
+../Core/Src/ota.c:72:13:etx_ota_flash_from_buffer	104	static
+../Core/Src/ota.c:179:9:get_available_slot_number	80	static
+../Core/Src/ota.c:206:19:write_cfg_to_flash	64	static
+../Core/Src/ota.c:271:26:write_data_to_slot	64	static
+../Core/Src/ota.c:349:26:write_data_to_flash_app	56	static
+../Core/Src/ota.c:416:6:load_new_app	96	static
