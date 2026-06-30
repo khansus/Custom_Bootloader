@@ -1,6 +1,6 @@
 ../Core/Src/http.c:36:13:http_ota_is_complete	4	static
 ../Core/Src/http.c:37:13:http_ota_get_result	4	static
-../Core/Src/http.c:44:6:http_application	16	static
-../Core/Src/http.c:82:7:httpd_post_begin	24	static
-../Core/Src/http.c:110:7:httpd_post_receive_data	32	static
-../Core/Src/http.c:137:6:httpd_post_finished	40	static
+../Core/Src/http.c:46:6:http_application	16	static
+../Core/Src/http.c:87:7:httpd_post_begin	24	static
+../Core/Src/http.c:115:7:httpd_post_receive_data	32	static
+../Core/Src/http.c:142:6:httpd_post_finished	40	static

@@ -19,7 +19,7 @@
  * keeps it away from stack and heap. If your firmware is smaller,
  * reduce HTTP_OTA_MAX_FW_SIZE to match.
  * ----------------------------------------------------------------------- */
-#define HTTP_OTA_MAX_FW_SIZE  (24U * 1024U)
+#define HTTP_OTA_MAX_FW_SIZE  (32U * 1024U)
 
 #define RED_LED GPIO_PIN_14
 
@@ -36,6 +36,8 @@ static ETX_OTA_EX_ ota_result;
 uint8_t     http_ota_is_complete( void ) { return ota_complete; }
 ETX_OTA_EX_ http_ota_get_result( void )  { return ota_result;   }
 
+extern ETH_HandleTypeDef heth;
+
 /* -----------------------------------------------------------------------
  * http_application
  * Called from main() when PA3 is high during the boot window.
@@ -47,6 +49,9 @@ void http_application( void )
     uint32_t count = 0;
     printf("HTTP OTA mode started\r\n");
     printf("Upload firmware to http://<board-ip>/upload.bin\r\n");
+//    uint32_t phy_status;
+//    HAL_StatusTypeDef phy_ret = HAL_ETH_ReadPHYRegister(&heth, LAN8742A_PHY_ADDRESS, PHY_BSR, &phy_status);
+//    printf("PHY read status = %d, BSR = 0x%04lX\r\n", phy_ret, phy_status);
 
     while( !http_ota_is_complete() )
     {
