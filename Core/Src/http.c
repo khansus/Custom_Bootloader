@@ -130,6 +130,7 @@ err_t httpd_post_receive_data( void *connection, struct pbuf *p )
         q = q->next;
     }
     pbuf_free(p);
+    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
     return ERR_OK;
 }
 
@@ -187,4 +188,6 @@ void httpd_post_finished( void *connection, char *response_uri,
     strncpy( response_uri,
              ota_result == ETX_OTA_EX_OK ? "/ok.html" : "/fail.html",
              response_uri_len );
+
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
 }

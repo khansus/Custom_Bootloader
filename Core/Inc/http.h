@@ -6,6 +6,7 @@
 
 #define HTTP_OTA_MAX_FW_SIZE  (512U * 1024U)
 
+void http_application(void);
 uint8_t     http_ota_is_complete( void );
 ETX_OTA_EX_ http_ota_get_result( void );
 

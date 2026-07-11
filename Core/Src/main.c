@@ -68,10 +68,6 @@ static void MX_USART3_UART_Init(void);
 static void MX_CRC_Init(void);
 /* USER CODE BEGIN PFP */
 static void goto_application( void );
-void uart_print(const char *str);
-
-extern void http_application(void);
-
 
 /* USER CODE END PFP */
 
@@ -115,30 +111,44 @@ int main(void)
   MX_CRC_Init();
   /* USER CODE BEGIN 2 */
 
-   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_SET);
 
-   printf("BOOTLOADER STARTED\r\n");
-   HAL_Delay(3000);
-   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_RESET);
-   uint32_t last_tick = HAL_GetTick();
-   bool BOOT_FLAG = 0;
-   printf("Waiting for BOOT...\r\n");
-   while(1){
+  printf("BOOTLOADER STARTED\r\n");
+  HAL_Delay(3000);
+  bool OTA_FLAG = 0;
+  uint32_t last_tick = HAL_GetTick();
+  while(1){
 
 	   if((HAL_GetTick() - last_tick) > BOOT_CHECK_DURATION)
 		   break;
-	   if(!BOOT_FLAG)
-		   BOOT_FLAG = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_3);
+	   if(!OTA_FLAG)
+		   OTA_FLAG = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_3);
    }
-   if(BOOT_FLAG){
-	   printf("BOOT FLAG SET\r\n");
+  ETX_GNRL_CFG_ cfg;
+  memcpy( &cfg,(ETX_GNRL_CFG_*)(ETX_CONFIG_FLASH_ADDR), sizeof(ETX_GNRL_CFG_) );
+  OTA_FLAG = OTA_FLAG || (cfg.reboot_cause == ETX_OTA_REQUEST);
+
+
+//  cfg.reboot_cause = ETX_NORMAL_BOOT;
+//
+//  while(1){
+//
+//	  if( write_cfg_to_flash( &cfg ) != HAL_OK ) {
+//
+//	      printf("OTA: failed to update reboot cause.\r\n");
+//	  }
+//
+//  }
+
+  if(OTA_FLAG){
+	   printf("OTA FLAG SET\r\n");
 	   http_application();
-   }
-   else {
-       printf("BOOT FLAG NOT SET\r\n");
-       load_new_app();       // copies staged slot → 0x08040000 if pending
-       goto_application();   // jumps to 0x08040000
-   }
+  }
+  else {
+      printf("OTA FLAG NOT SET\r\n");
+      load_new_app();       // copies staged slot → 0x08040000 if pending
+      goto_application();   // jumps to 0x08040000
+  }
 
 
   /* USER CODE END 2 */
@@ -366,17 +376,11 @@ int fputc(int ch, FILE *f)
   return ch;
 }
 
-void uart_print(const char *str)
-{
-    HAL_UART_Transmit(&huart3, (uint8_t *)str, strlen(str), HAL_MAX_DELAY);
-}
-
-
 /******************************************************************************************************************/
 
 static void goto_application(void)
 {
-  //printf("Gonna Jump to Application\r\n");
+  printf("Gonna Jump to Application\r\n");
 
   void (*app_reset_handler)(void) = (void*)(*((volatile uint32_t*) (ETX_APP_FLASH_ADDR + 4U)));
 
